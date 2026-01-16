@@ -68,6 +68,7 @@ export default async function ProductPage({
   const {
     data: { user },
   } = await supabase.auth.getUser()
+  
   let canReview = false
   if (user) {
     const { data: existingReview } = await supabase
@@ -75,20 +76,26 @@ export default async function ProductPage({
       .select("id")
       .eq("product_id", product.id)
       .eq("user_id", user.id)
-      .single()
+      .maybeSingle()  // FIXED: Changed from .single() to .maybeSingle()
+    
     canReview = !existingReview
   }
 
-  // Fetch related products
-  const { data: relatedProducts } = await supabase
-    .from("products")
-    .select(`
-      *,
-      images:product_images(*)
-    `)
-    .eq("category_id", product.category_id)
-    .neq("id", product.id)
-    .limit(4)
+  // Fetch related products - only if category exists
+  let relatedProducts = null
+  if (product.category_id) {
+    const { data } = await supabase
+      .from("products")
+      .select(`
+        *,
+        images:product_images(*)
+      `)
+      .eq("category_id", product.category_id)
+      .neq("id", product.id)
+      .limit(4)
+    
+    relatedProducts = data
+  }
 
   const sortedImages = (product.images as ProductImage[])?.sort((a, b) => a.display_order - b.display_order)
   const primaryImage = sortedImages?.[0]
@@ -107,6 +114,7 @@ export default async function ProductPage({
               fill
               className="object-cover"
               priority
+              unoptimized
             />
             {product.is_new && <Badge className="absolute left-4 top-4 bg-primary">New</Badge>}
             {hasDiscount && (
@@ -124,6 +132,7 @@ export default async function ProductPage({
                     alt={image.alt_text || product.name}
                     fill
                     className="object-cover"
+                    unoptimized
                   />
                 </div>
               ))}

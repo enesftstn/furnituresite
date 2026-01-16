@@ -1,80 +1,114 @@
-"use client"
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
-import { create } from "zustand"
-import { persist } from "zustand/middleware"
-
-export interface CartItem {
+export interface CartProduct {
   id: string
   name: string
   slug: string
   price: number
   image: string | null
-  quantity: number
   stock_quantity: number
-  variantId?: string | null
-  variantName?: string | null
+  sku?: string
+  images?: any[]
+}
+
+export interface CartItem {
+  product: CartProduct
+  quantity: number
 }
 
 interface CartStore {
   items: CartItem[]
-  addItem: (item: Omit<CartItem, "quantity">, quantity?: number) => void
-  removeItem: (productId: string, variantId?: string | null) => void
-  updateQuantity: (productId: string, quantity: number, variantId?: string | null) => void
+  addItem: (product: CartProduct, quantity?: number) => void
+  removeItem: (productId: string) => void
+  updateQuantity: (productId: string, quantity: number) => void
   clearCart: () => void
-  getCartTotal: () => number
+  getTotal: () => number
   getItemCount: () => number
+  cleanInvalidItems: () => void
 }
 
 export const useCart = create<CartStore>()(
   persist(
     (set, get) => ({
       items: [],
-      addItem: (item, quantity = 1) => {
+      
+      addItem: (product, quantity = 1) => {
+        if (!product || !product.id || !product.price) {
+          console.error('Invalid product', product)
+          return
+        }
+        
         set((state) => {
-          const existingItem = state.items.find(
-            (i) => i.id === item.id && (i.variantId || null) === (item.variantId || null),
-          )
-
+          const existingItem = state.items.find((item) => item.product.id === product.id)
+          
           if (existingItem) {
             return {
-              items: state.items.map((i) =>
-                i.id === item.id && (i.variantId || null) === (item.variantId || null)
-                  ? { ...i, quantity: i.quantity + quantity }
-                  : i,
+              items: state.items.map((item) =>
+                item.product.id === product.id
+                  ? { ...item, quantity: Math.min(item.quantity + quantity, product.stock_quantity) }
+                  : item
               ),
             }
           }
-
-          return { items: [...state.items, { ...item, quantity }] }
+          
+          return {
+            items: [...state.items, { product, quantity: Math.min(quantity, product.stock_quantity) }],
+          }
         })
       },
-      removeItem: (productId, variantId = null) => {
+      
+      removeItem: (productId) => {
         set((state) => ({
-          items: state.items.filter((item) => !(item.id === productId && (item.variantId || null) === variantId)),
+          items: state.items.filter((item) => item.product.id !== productId),
         }))
       },
-      updateQuantity: (productId, quantity, variantId = null) => {
+      
+      updateQuantity: (productId, quantity) => {
         if (quantity <= 0) {
-          get().removeItem(productId, variantId)
+          get().removeItem(productId)
           return
         }
-
+        
         set((state) => ({
           items: state.items.map((item) =>
-            item.id === productId && (item.variantId || null) === variantId ? { ...item, quantity } : item,
+            item.product.id === productId
+              ? { ...item, quantity: Math.min(quantity, item.product.stock_quantity) }
+              : item
           ),
         }))
       },
-      clearCart: () => set({ items: [] }),
-      getCartTotal: () => {
-        return get().items.reduce((total, item) => total + item.price * item.quantity, 0)
+      
+      clearCart: () => {
+        set({ items: [] })
       },
+      
+      cleanInvalidItems: () => {
+        set((state) => ({
+          items: state.items.filter(
+            (item) => item.product && item.product.id && item.product.price !== undefined
+          ),
+        }))
+      },
+      
+      getTotal: () => {
+        const state = get()
+        // Filter out invalid items and calculate total
+        return state.items
+          .filter((item) => item.product && item.product.price !== undefined)
+          .reduce((total, item) => total + (item.product.price * item.quantity), 0)
+      },
+      
       getItemCount: () => {
-        return get().items.reduce((count, item) => count + item.quantity, 0)
+        const state = get()
+        // Filter out invalid items and count
+        return state.items
+          .filter((item) => item.product && item.product.id)
+          .reduce((count, item) => count + item.quantity, 0)
       },
     }),
     {
-      name: "cart-storage",
-    },
-  ),
+      name: 'cart-storage',
+    }
+  )
 )

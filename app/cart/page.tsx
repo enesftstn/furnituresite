@@ -14,7 +14,7 @@ export default function CartPage() {
 
   const subtotal = getTotal()
   const shipping = subtotal > 2000 ? 0 : 50
-  const tax = subtotal * 0.18 // 18% VAT in Turkey
+  const tax = subtotal * 0.18
   const total = subtotal + shipping + tax
 
   if (items.length === 0) {
@@ -43,7 +43,7 @@ export default function CartPage() {
           <div className="space-y-4">
             {items.map((item) => {
               const primaryImage = item.product.images?.find((img) => img.is_primary)
-              const imageUrl = primaryImage?.image_url || "/assorted-living-room-furniture.png"
+              const imageUrl = primaryImage?.image_url || "/placeholder.svg?height=200&width=200"
 
               return (
                 <Card key={item.product.id}>
@@ -51,10 +51,15 @@ export default function CartPage() {
                     <div className="flex gap-4">
                       <div className="relative h-24 w-24 flex-shrink-0 overflow-hidden rounded-md bg-muted">
                         <Image
-                          src={imageUrl || "/placeholder.svg"}
+                          src={imageUrl}
                           alt={item.product.name}
                           fill
                           className="object-cover"
+                          unoptimized
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement
+                            target.src = "/placeholder.svg?height=200&width=200"
+                          }}
                         />
                       </div>
 
@@ -63,7 +68,9 @@ export default function CartPage() {
                           <Link href={`/products/${item.product.slug}`} className="font-semibold hover:underline">
                             {item.product.name}
                           </Link>
-                          <p className="text-sm text-muted-foreground">SKU: {item.product.sku}</p>
+                          <p className="text-sm text-muted-foreground">
+                            ₺{item.product.price.toFixed(2)} each
+                          </p>
                         </div>
 
                         <div className="flex items-center justify-between">
@@ -72,22 +79,26 @@ export default function CartPage() {
                               variant="outline"
                               size="icon"
                               className="h-8 w-8 bg-transparent"
-                              onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
+                              onClick={() => updateQuantity(item.product.id, Math.max(1, item.quantity - 1))}
                             >
                               <Minus className="h-3 w-3" />
                             </Button>
                             <Input
                               type="number"
                               min="1"
+                              max={item.product.stock_quantity}
                               value={item.quantity}
-                              onChange={(e) => updateQuantity(item.product.id, Number.parseInt(e.target.value) || 1)}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 1
+                                updateQuantity(item.product.id, Math.min(val, item.product.stock_quantity))
+                              }}
                               className="h-8 w-16 text-center"
                             />
                             <Button
                               variant="outline"
                               size="icon"
                               className="h-8 w-8 bg-transparent"
-                              onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
+                              onClick={() => updateQuantity(item.product.id, Math.min(item.quantity + 1, item.product.stock_quantity))}
                               disabled={item.quantity >= item.product.stock_quantity}
                             >
                               <Plus className="h-3 w-3" />

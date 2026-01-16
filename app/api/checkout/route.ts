@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
     const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
 
     // Create order in database
+    // Around line 39, modify the insert to always use card payment:
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
         tax: totals.tax,
         shipping_cost: totals.shipping,
         total: totals.total,
-        payment_method: shipping.paymentMethod,
+        payment_method: "card", // Always card for Stripe
         status: "pending",
         payment_status: "pending",
       })

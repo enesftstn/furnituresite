@@ -2,18 +2,24 @@ import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import Link from "next/link"
 import Image from "next/image"
-import { Plus } from "lucide-react"
+import { Plus, Search } from "lucide-react"
 
 export const metadata = {
   title: "Products - Admin Dashboard",
 }
 
-export default async function AdminProductsPage() {
+export default async function AdminProductsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ search?: string }>
+}) {
+  const { search } = await searchParams
   const supabase = await createClient()
 
-  const { data: products } = await supabase
+  let query = supabase
     .from("products")
     .select(`
       *,
@@ -21,6 +27,12 @@ export default async function AdminProductsPage() {
       images:product_images(*)
     `)
     .order("created_at", { ascending: false })
+
+  if (search) {
+    query = query.or(`name.ilike.%${search}%,sku.ilike.%${search}%`)
+  }
+
+  const { data: products } = await query
 
   return (
     <div className="space-y-6">
@@ -39,7 +51,20 @@ export default async function AdminProductsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>All Products ({products?.length || 0})</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>All Products ({products?.length || 0})</CardTitle>
+            <div className="relative w-64">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <form action="/admin/products" method="get">
+                <Input
+                  name="search"
+                  placeholder="Search products..."
+                  defaultValue={search}
+                  className="pl-8"
+                />
+              </form>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -54,6 +79,7 @@ export default async function AdminProductsPage() {
                         alt={product.name}
                         fill
                         className="object-cover"
+                        unoptimized
                       />
                     </div>
                     <div className="flex-1">
@@ -63,6 +89,7 @@ export default async function AdminProductsPage() {
                         {product.is_featured && <Badge variant="secondary">Featured</Badge>}
                       </div>
                       <p className="text-sm text-muted-foreground">{product.category?.name || "Uncategorized"}</p>
+                      <p className="text-xs text-muted-foreground">SKU: {product.sku}</p>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-right">
@@ -77,7 +104,9 @@ export default async function AdminProductsPage() {
                 )
               })
             ) : (
-              <p className="text-center text-muted-foreground">No products found</p>
+              <p className="text-center text-muted-foreground py-8">
+                {search ? `No products found for "${search}"` : "No products found"}
+              </p>
             )}
           </div>
         </CardContent>
