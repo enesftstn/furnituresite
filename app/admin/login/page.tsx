@@ -23,42 +23,54 @@ export default function AdminLoginPage() {
 
     const supabase = createClient()
 
-    // Sign in
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    try {
+      // Sign in
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-    if (authError) {
-      setError(authError.message)
+      if (authError) {
+        setError(authError.message)
+        setLoading(false)
+        return
+      }
+
+      if (!authData.user) {
+        setError("Authentication failed")
+        setLoading(false)
+        return
+      }
+
+      // Check if user is admin
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("is_admin")
+        .eq("id", authData.user.id)
+        .single()
+
+      if (userError) {
+        console.error("Error checking admin status:", userError)
+        await supabase.auth.signOut()
+        setError("Failed to verify admin status")
+        setLoading(false)
+        return
+      }
+
+      if (!userData?.is_admin) {
+        await supabase.auth.signOut()
+        setError("Access denied. Admin privileges required.")
+        setLoading(false)
+        return
+      }
+
+      // Success! Force a hard refresh to update server-side session
+      window.location.href = "/admin"
+    } catch (error) {
+      console.error("Login error:", error)
+      setError("An unexpected error occurred")
       setLoading(false)
-      return
     }
-
-    if (!authData.user) {
-      setError("Authentication failed")
-      setLoading(false)
-      return
-    }
-
-    // Check if user is admin
-    const { data: userData, error: userError } = await supabase
-      .from("users")
-      .select("is_admin")
-      .eq("id", authData.user.id)
-      .single()
-
-    if (userError || !userData?.is_admin) {
-      // Not an admin, sign them out
-      await supabase.auth.signOut()
-      setError("Access denied. Admin privileges required.")
-      setLoading(false)
-      return
-    }
-
-    // Redirect to admin dashboard
-    router.push("/admin")
-    router.refresh()
   }
 
   return (

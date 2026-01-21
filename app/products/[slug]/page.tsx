@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { ProductCard } from "@/components/product-card"
 import { ProductReviews } from "@/components/product-reviews"
+import { ProductQA } from "@/components/product-qa"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 export async function generateMetadata({
@@ -65,6 +66,20 @@ export default async function ProductPage({
     .eq("product_id", product.id)
     .order("created_at", { ascending: false })
 
+  // Fetch Q&A data
+  const { data: questions } = await supabase
+    .from("product_questions")
+    .select(`
+      *,
+      user:users(full_name),
+      answers:product_answers(
+        *,
+        user:users(full_name)
+      )
+    `)
+    .eq("product_id", product.id)
+    .order("created_at", { ascending: false })
+
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -76,7 +91,7 @@ export default async function ProductPage({
       .select("id")
       .eq("product_id", product.id)
       .eq("user_id", user.id)
-      .maybeSingle()  // FIXED: Changed from .single() to .maybeSingle()
+      .maybeSingle()
     
     canReview = !existingReview
   }
@@ -215,10 +230,11 @@ export default async function ProductPage({
 
       <div className="mt-16">
         <Tabs defaultValue="description" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="description">Description</TabsTrigger>
             <TabsTrigger value="specifications">Specifications</TabsTrigger>
             <TabsTrigger value="reviews">Reviews ({product.review_count})</TabsTrigger>
+            <TabsTrigger value="qa">Q&A ({questions?.length || 0})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="description" className="mt-6 space-y-4">
@@ -277,6 +293,14 @@ export default async function ProductPage({
               averageRating={product.rating}
               totalReviews={product.review_count}
               canReview={canReview}
+            />
+          </TabsContent>
+
+          <TabsContent value="qa" className="mt-6">
+            <ProductQA
+              productId={product.id}
+              questions={questions || []}
+              isAuthenticated={!!user}
             />
           </TabsContent>
         </Tabs>

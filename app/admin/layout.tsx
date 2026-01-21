@@ -22,14 +22,16 @@ export default async function AdminLayout({
   }
 
   // Check if user is admin
-  const { data: userData } = await supabase
+  const { data: userData, error } = await supabase
     .from("users")
     .select("is_admin, full_name, email")
     .eq("id", user.id)
-    .maybeSingle()
+    .single()
 
-  // Not an admin - redirect to admin login  
-  if (!userData || !userData.is_admin) {
+  // If there's an error or user is not an admin, redirect to admin login
+  if (error || !userData || !userData.is_admin) {
+    // Sign out the user
+    await supabase.auth.signOut()
     redirect("/admin/login")
   }
 
@@ -51,6 +53,13 @@ export default async function AdminLayout({
             >
               <LayoutGrid className="h-4 w-4" />
               Dashboard
+            </Link>
+            <Link
+              href="/admin/analytics"
+              className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
+            >
+              <LayoutGrid className="h-4 w-4" />
+              Analytics
             </Link>
             <Link
               href="/admin/products"

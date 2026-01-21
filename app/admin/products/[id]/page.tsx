@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Loader2, ArrowLeft, Trash2 } from "lucide-react"
 import Link from "next/link"
+import { ImageUpload } from "../image-uploads"
 
 export default function EditProductPage({ params }: { params: { id: string } }) {
   const router = useRouter()
@@ -45,6 +46,7 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
     stock_quantity: "",
     is_featured: false,
     is_new: false,
+    images: [] as string[],
   })
 
   useEffect(() => {
@@ -64,11 +66,19 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
       // Load product
       const { data: product } = await supabase
         .from("products")
-        .select("*")
+        .select(`
+          *,
+          images:product_images(*)
+        `)
         .eq("id", params.id)
         .single()
 
       if (product) {
+        // Extract image URLs
+        const imageUrls = product.images
+          ?.sort((a: any, b: any) => a.display_order - b.display_order)
+          .map((img: any) => img.image_url) || []
+
         setFormData({
           name: product.name || "",
           slug: product.slug || "",
@@ -83,6 +93,7 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
           stock_quantity: product.stock_quantity?.toString() || "",
           is_featured: product.is_featured || false,
           is_new: product.is_new || false,
+          images: imageUrls,
         })
       }
 
@@ -99,7 +110,8 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
     try {
       const supabase = createClient()
 
-      const { error } = await supabase
+      // Update product
+      const { error: productError } = await supabase
         .from("products")
         .update({
           name: formData.name,
@@ -118,10 +130,36 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
         })
         .eq("id", params.id)
 
-      if (error) {
-        alert(`Error: ${error.message}`)
+      if (productError) {
+        alert(`Error: ${productError.message}`)
         setLoading(false)
         return
+      }
+
+      // Delete all existing images
+      await supabase
+        .from("product_images")
+        .delete()
+        .eq("product_id", params.id)
+
+      // Add new images
+      if (formData.images.length > 0) {
+        const imageInserts = formData.images.map((imageUrl, index) => ({
+          product_id: params.id,
+          image_url: imageUrl,
+          alt_text: formData.name,
+          is_primary: index === 0,
+          display_order: index + 1,
+        }))
+
+        const { error: imagesError } = await supabase
+          .from("product_images")
+          .insert(imageInserts)
+
+        if (imagesError) {
+          console.error("Error updating images:", imagesError)
+          alert("Product updated but failed to update some images")
+        }
       }
 
       alert("Product updated successfully!")
@@ -140,6 +178,7 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
     try {
       const supabase = createClient()
 
+      // Delete product (images will be deleted via cascade)
       const { error } = await supabase
         .from("products")
         .delete()
@@ -305,6 +344,18 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
                     />
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Product Images</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ImageUpload
+                  currentImages={formData.images}
+                  onImagesChange={(images) => setFormData({ ...formData, images })}
+                />
               </CardContent>
             </Card>
           </div>
