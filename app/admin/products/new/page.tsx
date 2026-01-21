@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { Loader2, ArrowLeft } from "lucide-react"
 import Link from "next/link"
-import { ImageUpload } from "../image-uploads"
+import { useEffect } from "react"
 
 export default function NewProductPage() {
   const router = useRouter()
@@ -34,7 +34,7 @@ export default function NewProductPage() {
     stock_quantity: "",
     is_featured: false,
     is_new: false,
-    images: [] as string[],
+    image_url: "",
   })
 
   // Load categories
@@ -100,24 +100,15 @@ export default function NewProductPage() {
         return
       }
 
-      // Add images
-      if (formData.images.length > 0 && product) {
-        const imageInserts = formData.images.map((imageUrl, index) => ({
+      // Add default image if provided
+      if (formData.image_url && product) {
+        await supabase.from("product_images").insert({
           product_id: product.id,
-          image_url: imageUrl,
+          image_url: formData.image_url,
           alt_text: formData.name,
-          is_primary: index === 0,
-          display_order: index + 1,
-        }))
-
-        const { error: imagesError } = await supabase
-          .from("product_images")
-          .insert(imageInserts)
-
-        if (imagesError) {
-          console.error("Error adding images:", imagesError)
-          alert("Product created but failed to add some images")
-        }
+          is_primary: true,
+          display_order: 1,
+        })
       }
 
       alert("Product created successfully!")
@@ -237,18 +228,20 @@ export default function NewProductPage() {
                     />
                   </div>
                 </div>
-              </CardContent>
-            </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Product Images</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ImageUpload
-                  currentImages={formData.images}
-                  onImagesChange={(images) => setFormData({ ...formData, images })}
-                />
+                <div>
+                  <Label htmlFor="image_url">Image URL</Label>
+                  <Input
+                    id="image_url"
+                    type="url"
+                    value={formData.image_url}
+                    onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                    placeholder="https://example.com/image.jpg"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Add a direct URL to the product image
+                  </p>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -297,7 +290,7 @@ export default function NewProductPage() {
                 <div>
                   <Label htmlFor="category">Category</Label>
                   <Select
-                    value={formData.category_id}
+                    value={formData.category_id || undefined}
                     onValueChange={(value) => setFormData({ ...formData, category_id: value })}
                   >
                     <SelectTrigger>
