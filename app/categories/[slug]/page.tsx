@@ -13,7 +13,12 @@ export async function generateMetadata({
   const { slug } = await params
   const supabase = await createClient()
 
-  const { data: category } = await supabase.from("categories").select("name, description").eq("slug", slug).single()
+  // OPTIMIZED: Only fetch what we need
+  const { data: category } = await supabase
+    .from("categories")
+    .select("name, description")
+    .eq("slug", slug)
+    .single()
 
   if (!category) {
     return {
@@ -35,27 +40,46 @@ export default async function CategoryPage({
   const { slug } = await params
   const supabase = await createClient()
 
-  const { data: category } = await supabase.from("categories").select("*").eq("slug", slug).single()
+  // OPTIMIZED: Only fetch needed fields
+  const { data: category } = await supabase
+    .from("categories")
+    .select("id, name, slug, description")
+    .eq("slug", slug)
+    .single()
 
   if (!category) {
     notFound()
   }
 
-  // Fetch subcategories
+  // OPTIMIZED: Fetch subcategories only if needed
   const { data: subcategories } = await supabase
     .from("categories")
-    .select("*")
+    .select("id, name, slug")
     .eq("parent_id", category.id)
     .order("display_order")
 
-  // Fetch products in this category
+  // OPTIMIZED: Only fetch primary images
   const { data: products } = await supabase
     .from("products")
     .select(`
-      *,
-      images:product_images(*)
+      id,
+      name,
+      slug,
+      price,
+      original_price,
+      stock_quantity,
+      is_new,
+      sku,
+      rating,
+      review_count,
+      images:product_images!inner(
+        image_url,
+        alt_text,
+        is_primary
+      )
     `)
     .eq("category_id", category.id)
+    .eq("product_images.is_primary", true)
     .order("created_at", { ascending: false })
 
   return (

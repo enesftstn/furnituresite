@@ -20,14 +20,30 @@ export default async function SearchPage({
   let products: Product[] = []
 
   if (query) {
+    // OPTIMIZED: Use trigram index for fast search + only fetch primary images
     const { data } = await supabase
       .from("products")
       .select(`
-        *,
-        images:product_images(*)
+        id,
+        name,
+        slug,
+        price,
+        original_price,
+        stock_quantity,
+        is_new,
+        sku,
+        rating,
+        review_count,
+        images:product_images!inner(
+          image_url,
+          alt_text,
+          is_primary
+        )
       `)
       .or(`name.ilike.%${query}%,description.ilike.%${query}%`)
+      .eq("product_images.is_primary", true)
       .order("created_at", { ascending: false })
+      .limit(50) // Limit results
 
     products = data || []
   }

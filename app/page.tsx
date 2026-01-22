@@ -16,32 +16,61 @@ export const metadata = {
 export default async function HomePage() {
   const supabase = await createClient()
 
-  // Fetch featured products
+  // OPTIMIZED: Only fetch primary images with inner join
   const { data: featuredProducts } = await supabase
     .from("products")
     .select(`
-      *,
-      images:product_images(*)
+      id,
+      name,
+      slug,
+      price,
+      original_price,
+      stock_quantity,
+      is_new,
+      sku,
+      rating,
+      review_count,
+      is_featured,
+      images:product_images!inner(
+        image_url,
+        alt_text,
+        is_primary
+      )
     `)
     .eq("is_featured", true)
+    .eq("product_images.is_primary", true)
     .order("created_at", { ascending: false })
     .limit(8)
 
-  // Fetch new arrivals
+  // OPTIMIZED: Only fetch primary images
   const { data: newProducts } = await supabase
     .from("products")
     .select(`
-      *,
-      images:product_images(*)
+      id,
+      name,
+      slug,
+      price,
+      original_price,
+      stock_quantity,
+      is_new,
+      sku,
+      rating,
+      review_count,
+      images:product_images!inner(
+        image_url,
+        alt_text,
+        is_primary
+      )
     `)
     .eq("is_new", true)
+    .eq("product_images.is_primary", true)
     .order("created_at", { ascending: false })
     .limit(4)
 
-  // Fetch main categories
+  // OPTIMIZED: Only fetch needed fields
   const { data: categories } = await supabase
     .from("categories")
-    .select("*")
+    .select("id, name, slug, image_url")
     .is("parent_id", null)
     .order("display_order")
     .limit(4)

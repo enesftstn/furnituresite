@@ -4,13 +4,21 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    unoptimized: true,
+    unoptimized: false, // Change this to false to enable optimization
     remotePatterns: [
       {
         protocol: "https",
         hostname: "**.public.blob.vercel-storage.com",
       },
+      // Add your image CDN domains here
+      {
+        protocol: "https",
+        hostname: "**.supabase.co",
+      },
     ],
+    formats: ['image/webp', 'image/avif'], // Modern formats
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
   },
 }
 

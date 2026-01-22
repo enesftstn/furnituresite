@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Loader2, ArrowLeft, Trash2 } from "lucide-react"
 import Link from "next/link"
+import { ImageUpload } from "../image-uploads"
 
 export default function EditProductPage({ params }: { params: { id: string } }) {
   const router = useRouter()
@@ -30,6 +31,8 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
   const [deleting, setDeleting] = useState(false)
   const [loadingData, setLoadingData] = useState(true)
   const [categories, setCategories] = useState<any[]>([])
+  const [images, setImages] = useState<string[]>([])
+  const [productId, setProductId] = useState<string>("")
 
   const [formData, setFormData] = useState({
     name: "",
@@ -50,6 +53,11 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
   useEffect(() => {
     const loadData = async () => {
       const supabase = createClient()
+      
+      // Unwrap params
+      const resolvedParams = await Promise.resolve(params)
+      const id = resolvedParams.id
+      setProductId(id)
 
       // Load categories
       const { data: categoriesData } = await supabase
@@ -65,7 +73,7 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
       const { data: product } = await supabase
         .from("products")
         .select("*")
-        .eq("id", params.id)
+        .eq("id", id)
         .single()
 
       if (product) {
@@ -86,11 +94,22 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
         })
       }
 
+      // Load product images
+      const { data: productImages } = await supabase
+        .from("product_images")
+        .select("image_url")
+        .eq("product_id", id)
+        .order("display_order")
+
+      if (productImages && productImages.length > 0) {
+        setImages(productImages.map((img) => img.image_url))
+      }
+
       setLoadingData(false)
     }
 
     loadData()
-  }, [params.id])
+  }, [params])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -116,12 +135,27 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
           is_featured: formData.is_featured,
           is_new: formData.is_new,
         })
-        .eq("id", params.id)
+        .eq("id", productId)
 
       if (error) {
         alert(`Error: ${error.message}`)
         setLoading(false)
         return
+      }
+
+      // Update images - delete old ones and insert new ones
+      await supabase.from("product_images").delete().eq("product_id", productId)
+
+      if (images.length > 0) {
+        const imageInserts = images.map((imageUrl, index) => ({
+          product_id: productId,
+          image_url: imageUrl,
+          alt_text: formData.name,
+          is_primary: index === 0,
+          display_order: index + 1,
+        }))
+
+        await supabase.from("product_images").insert(imageInserts)
       }
 
       alert("Product updated successfully!")
@@ -135,15 +169,24 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
   }
 
   const handleDelete = async () => {
+    if (!productId) {
+      alert("Invalid product ID")
+      return
+    }
+
     setDeleting(true)
 
     try {
       const supabase = createClient()
 
+      // First delete product images
+      await supabase.from("product_images").delete().eq("product_id", productId)
+
+      // Then delete the product
       const { error } = await supabase
         .from("products")
         .delete()
-        .eq("id", params.id)
+        .eq("id", productId)
 
       if (error) {
         alert(`Error: ${error.message}`)
@@ -266,6 +309,18 @@ export default function EditProductPage({ params }: { params: { id: string } }) 
                     placeholder="Describe the product..."
                   />
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Product Images</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ImageUpload 
+                  currentImages={images} 
+                  onImagesChange={setImages} 
+                />
               </CardContent>
             </Card>
 

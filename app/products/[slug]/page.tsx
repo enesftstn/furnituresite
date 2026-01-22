@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import type { Product, ProductImage } from "@/lib/types"
 import { notFound } from "next/navigation"
-import Image from "next/image"
 import { AddToCartButton } from "./add-to-cart-button"
 import { Star, Truck, RotateCcw, Shield } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -10,6 +9,9 @@ import { ProductCard } from "@/components/product-card"
 import { ProductReviews } from "@/components/product-reviews"
 import { ProductQA } from "@/components/product-qa"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ProductImageGallery } from "@/components/product-image-gallery"
+import { Suspense } from "react"
+import { Skeleton } from "@/components/ui/skeleton"
 
 export async function generateMetadata({
   params,
@@ -19,7 +21,11 @@ export async function generateMetadata({
   const { slug } = await params
   const supabase = await createClient()
 
-  const { data: product } = await supabase.from("products").select("name, description, price").eq("slug", slug).single()
+  const { data: product } = await supabase
+    .from("products")
+    .select("name, description, price")
+    .eq("slug", slug)
+    .single()
 
   if (!product) {
     return {
@@ -33,52 +39,42 @@ export async function generateMetadata({
   }
 }
 
-export default async function ProductPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>
-}) {
-  const { slug } = await params
+// Loading skeleton component
+function ProductSkeleton() {
+  return (
+    <div className="container py-8">
+      <div className="grid gap-8 lg:grid-cols-2">
+        <div className="space-y-4">
+          <Skeleton className="aspect-square w-full rounded-lg" />
+          <div className="grid grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="aspect-square rounded-lg" />
+            ))}
+          </div>
+        </div>
+        <div className="space-y-6">
+          <Skeleton className="h-10 w-3/4" />
+          <Skeleton className="h-6 w-1/2" />
+          <Skeleton className="h-20 w-full" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Reviews section component
+async function ReviewsSection({ productId }: { productId: string }) {
   const supabase = await createClient()
-
-  const { data: product } = await supabase
-    .from("products")
-    .select(`
-      *,
-      category:categories(*),
-      images:product_images(*),
-      variants:product_variants(*),
-      specifications:product_specifications(*)
-    `)
-    .eq("slug", slug)
-    .single()
-
-  if (!product) {
-    notFound()
-  }
-
+  
   const { data: reviews } = await supabase
     .from("reviews")
     .select(`
       *,
       user:users(full_name)
     `)
-    .eq("product_id", product.id)
+    .eq("product_id", productId)
     .order("created_at", { ascending: false })
-
-  // Fetch Q&A data
-  const { data: questions } = await supabase
-    .from("product_questions")
-    .select(`
-      *,
-      user:users(full_name),
-      answers:product_answers(
-        *,
-        user:users(full_name)
-      )
-    `)
-    .eq("product_id", product.id)
-    .order("created_at", { ascending: false })
+    .limit(10)
 
   const {
     data: { user },
@@ -89,31 +85,146 @@ export default async function ProductPage({
     const { data: existingReview } = await supabase
       .from("reviews")
       .select("id")
-      .eq("product_id", product.id)
+      .eq("product_id", productId)
       .eq("user_id", user.id)
       .maybeSingle()
     
     canReview = !existingReview
   }
 
-  // Fetch related products - only if category exists
-  let relatedProducts = null
-  if (product.category_id) {
-    const { data } = await supabase
-      .from("products")
-      .select(`
+  return (
+    <ProductReviews
+      productId={productId}
+      reviews={reviews || []}
+      averageRating={0}
+      totalReviews={reviews?.length || 0}
+      canReview={canReview}
+    />
+  )
+}
+
+// Q&A section component
+async function QASection({ productId }: { productId: string }) {
+  const supabase = await createClient()
+  
+  const { data: questions } = await supabase
+    .from("product_questions")
+    .select(`
+      *,
+      user:users(full_name),
+      answers:product_answers(
         *,
-        images:product_images(*)
-      `)
-      .eq("category_id", product.category_id)
-      .neq("id", product.id)
-      .limit(4)
-    
-    relatedProducts = data
+        user:users(full_name, is_admin)
+      )
+    `)
+    .eq("product_id", productId)
+    .order("created_at", { ascending: false })
+    .limit(10)
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  return (
+    <ProductQA
+      productId={productId}
+      questions={questions || []}
+      isAuthenticated={!!user}
+    />
+  )
+}
+
+// Related products component
+async function RelatedProducts({ categoryId, currentProductId }: { categoryId: string; currentProductId: string }) {
+  const supabase = await createClient()
+  
+  const { data: relatedProducts } = await supabase
+    .from("products")
+    .select(`
+      id,
+      name,
+      slug,
+      price,
+      original_price,
+      stock_quantity,
+      rating,
+      is_new,
+      is_featured,
+      images:product_images!inner(
+        id,
+        image_url,
+        alt_text,
+        is_primary,
+        display_order
+      )
+    `)
+    .eq("category_id", categoryId)
+    .eq("images.is_primary", true)
+    .neq("id", currentProductId)
+    .limit(4)
+
+  if (!relatedProducts || relatedProducts.length === 0) {
+    return null
   }
 
-  const sortedImages = (product.images as ProductImage[])?.sort((a, b) => a.display_order - b.display_order)
-  const primaryImage = sortedImages?.[0]
+  return (
+    <div className="mt-16">
+      <h2 className="mb-6 text-2xl font-bold">You might also like</h2>
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {relatedProducts.map((product: Product) => (
+          <ProductCard key={product.id} product={product} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default async function ProductPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>
+}) {
+  const { slug } = await params
+  const supabase = await createClient()
+
+  // Fetch product with optimized query - only get what we need
+  const { data: product } = await supabase
+    .from("products")
+    .select(`
+      id,
+      name,
+      slug,
+      sku,
+      description,
+      price,
+      original_price,
+      category_id,
+      dimensions,
+      material,
+      color,
+      stock_quantity,
+      is_new,
+      rating,
+      review_count,
+      images:product_images(
+        id,
+        image_url,
+        alt_text,
+        display_order,
+        is_primary
+      ),
+      specifications:product_specifications(
+        id,
+        key,
+        value
+      )
+    `)
+    .eq("slug", slug)
+    .single()
+
+  if (!product) {
+    notFound()
+  }
 
   const hasDiscount = product.original_price && product.original_price > product.price
 
@@ -121,39 +232,12 @@ export default async function ProductPage({
     <div className="container py-8">
       <div className="grid gap-8 lg:grid-cols-2">
         {/* Product Images */}
-        <div className="space-y-4">
-          <div className="relative aspect-square overflow-hidden rounded-lg bg-muted">
-            <Image
-              src={primaryImage?.image_url || "/placeholder.svg?height=600&width=600&query=furniture"}
-              alt={product.name}
-              fill
-              className="object-cover"
-              priority
-              unoptimized
-            />
-            {product.is_new && <Badge className="absolute left-4 top-4 bg-primary">New</Badge>}
-            {hasDiscount && (
-              <Badge className="absolute right-4 top-4 bg-destructive">
-                {Math.round(((product.original_price! - product.price) / product.original_price!) * 100)}% OFF
-              </Badge>
-            )}
-          </div>
-          {sortedImages && sortedImages.length > 1 && (
-            <div className="grid grid-cols-4 gap-4">
-              {sortedImages.slice(1, 5).map((image: ProductImage) => (
-                <div key={image.id} className="relative aspect-square overflow-hidden rounded-lg bg-muted">
-                  <Image
-                    src={image.image_url || "/placeholder.svg"}
-                    alt={image.alt_text || product.name}
-                    fill
-                    className="object-cover"
-                    unoptimized
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <ProductImageGallery 
+          images={product.images || []} 
+          productName={product.name}
+          isNew={product.is_new}
+          discount={hasDiscount ? Math.round(((product.original_price! - product.price) / product.original_price!) * 100) : 0}
+        />
 
         {/* Product Info */}
         <div className="space-y-6">
@@ -234,7 +318,7 @@ export default async function ProductPage({
             <TabsTrigger value="description">Description</TabsTrigger>
             <TabsTrigger value="specifications">Specifications</TabsTrigger>
             <TabsTrigger value="reviews">Reviews ({product.review_count})</TabsTrigger>
-            <TabsTrigger value="qa">Q&A ({questions?.length || 0})</TabsTrigger>
+            <TabsTrigger value="qa">Q&A</TabsTrigger>
           </TabsList>
 
           <TabsContent value="description" className="mt-6 space-y-4">
@@ -287,35 +371,24 @@ export default async function ProductPage({
           </TabsContent>
 
           <TabsContent value="reviews" className="mt-6">
-            <ProductReviews
-              productId={product.id}
-              reviews={reviews || []}
-              averageRating={product.rating}
-              totalReviews={product.review_count}
-              canReview={canReview}
-            />
+            <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+              <ReviewsSection productId={product.id} />
+            </Suspense>
           </TabsContent>
 
           <TabsContent value="qa" className="mt-6">
-            <ProductQA
-              productId={product.id}
-              questions={questions || []}
-              isAuthenticated={!!user}
-            />
+            <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+              <QASection productId={product.id} />
+            </Suspense>
           </TabsContent>
         </Tabs>
       </div>
 
       {/* Related Products */}
-      {relatedProducts && relatedProducts.length > 0 && (
-        <div className="mt-16">
-          <h2 className="mb-6 text-2xl font-bold">You might also like</h2>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {relatedProducts.map((relatedProduct: Product) => (
-              <ProductCard key={relatedProduct.id} product={relatedProduct} />
-            ))}
-          </div>
-        </div>
+      {product.category_id && (
+        <Suspense fallback={<Skeleton className="h-96 w-full mt-16" />}>
+          <RelatedProducts categoryId={product.category_id} currentProductId={product.id} />
+        </Suspense>
       )}
     </div>
   )
