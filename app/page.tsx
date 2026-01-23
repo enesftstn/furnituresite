@@ -6,6 +6,7 @@ import Link from "next/link"
 import Image from "next/image"
 import { HeroSlider } from "@/components/hero-slider"
 import { Newsletter } from "@/components/newsletter"
+import { unstable_cache } from 'next/cache'
 
 export const metadata = {
   title: "HOMESTORE - Affordable Furniture for Modern Living",
@@ -13,67 +14,95 @@ export const metadata = {
     "Discover stylish and affordable furniture for every room in your home. Shop beds, sofas, storage solutions, and more.",
 }
 
+// Cache featured products for 5 minutes
+const getFeaturedProducts = unstable_cache(
+  async () => {
+    const supabase = await createClient()
+    
+    const { data } = await supabase
+      .from("products")
+      .select(`
+        id,
+        name,
+        slug,
+        price,
+        original_price,
+        stock_quantity,
+        is_new,
+        rating,
+        images:product_images!inner(
+          image_url,
+          is_primary
+        )
+      `)
+      .eq("is_featured", true)
+      .eq("product_images.is_primary", true)
+      .order("created_at", { ascending: false })
+      .limit(8)
+
+    return data
+  },
+  ['featured-products'],
+  { revalidate: 300, tags: ['products'] } // Cache for 5 minutes
+)
+
+// Cache new products for 5 minutes
+const getNewProducts = unstable_cache(
+  async () => {
+    const supabase = await createClient()
+    
+    const { data } = await supabase
+      .from("products")
+      .select(`
+        id,
+        name,
+        slug,
+        price,
+        original_price,
+        stock_quantity,
+        is_new,
+        rating,
+        images:product_images!inner(
+          image_url,
+          is_primary
+        )
+      `)
+      .eq("is_new", true)
+      .eq("product_images.is_primary", true)
+      .order("created_at", { ascending: false })
+      .limit(4)
+
+    return data
+  },
+  ['new-products'],
+  { revalidate: 300, tags: ['products'] }
+)
+
+// Cache categories for 1 hour
+const getCategories = unstable_cache(
+  async () => {
+    const supabase = await createClient()
+    
+    const { data } = await supabase
+      .from("categories")
+      .select("id, name, slug, image_url")
+      .is("parent_id", null)
+      .order("display_order")
+      .limit(4)
+
+    return data
+  },
+  ['home-categories'],
+  { revalidate: 3600, tags: ['categories'] }
+)
+
 export default async function HomePage() {
-  const supabase = await createClient()
-
-  // OPTIMIZED: Only fetch primary images with inner join
-  const { data: featuredProducts } = await supabase
-    .from("products")
-    .select(`
-      id,
-      name,
-      slug,
-      price,
-      original_price,
-      stock_quantity,
-      is_new,
-      sku,
-      rating,
-      review_count,
-      is_featured,
-      images:product_images!inner(
-        image_url,
-        alt_text,
-        is_primary
-      )
-    `)
-    .eq("is_featured", true)
-    .eq("product_images.is_primary", true)
-    .order("created_at", { ascending: false })
-    .limit(8)
-
-  // OPTIMIZED: Only fetch primary images
-  const { data: newProducts } = await supabase
-    .from("products")
-    .select(`
-      id,
-      name,
-      slug,
-      price,
-      original_price,
-      stock_quantity,
-      is_new,
-      sku,
-      rating,
-      review_count,
-      images:product_images!inner(
-        image_url,
-        alt_text,
-        is_primary
-      )
-    `)
-    .eq("is_new", true)
-    .eq("product_images.is_primary", true)
-    .order("created_at", { ascending: false })
-    .limit(4)
-
-  // OPTIMIZED: Only fetch needed fields
-  const { data: categories } = await supabase
-    .from("categories")
-    .select("id, name, slug, image_url")
-    .is("parent_id", null)
-    .order("display_order")
-    .limit(4)
+  // Fetch all data in parallel
+  const [featuredProducts, newProducts, categories] = await Promise.all([
+    getFeaturedProducts(),
+    getNewProducts(),
+    getCategories(),
+  ])
 
   return (
     <div className="flex flex-col">
@@ -92,15 +121,17 @@ export default async function HomePage() {
                 className="group relative aspect-square overflow-hidden rounded-lg bg-muted"
               >
                 <Image
-                  src={category.image_url || "/placeholder.svg?height=400&width=400&query=furniture"}
+                  src={category.image_url || "/placeholder.svg?height=400&width=400"}
                   alt={category.name}
                   fill
+                  sizes="(max-width: 768px) 50vw, 25vw"
                   className="object-cover transition-transform group-hover:scale-105"
+                  loading="lazy"
+                  quality={75}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
                 <div className="absolute bottom-4 left-4">
                   <h3 className="text-xl font-semibold">{category.name}</h3>
-                  <p className="text-sm text-muted-foreground">Explore collection</p>
                 </div>
               </Link>
             ))}

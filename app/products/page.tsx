@@ -2,11 +2,47 @@ import { createClient } from "@/lib/supabase/server"
 import type { Product } from "@/lib/types"
 import { ProductCard } from "@/components/product-card"
 import { ProductFilters } from "@/components/product-filters"
+import { unstable_cache } from 'next/cache'
 
 export const metadata = {
   title: "All Products - HOMESTORE",
   description: "Browse our complete collection of furniture and home accessories",
 }
+
+// Cache filter options for 1 hour
+const getFilterOptions = unstable_cache(
+  async () => {
+    const supabase = await createClient()
+    
+    // Get categories
+    const { data: categories } = await supabase
+      .from("categories")
+      .select("name, slug")
+      .is("parent_id", null)
+      .order("name")
+      .limit(20)
+
+    // Get unique colors and materials efficiently
+    const { data: colorData } = await supabase
+      .from("products")
+      .select("color")
+      .not("color", "is", null)
+      .limit(500)
+
+    const { data: materialData } = await supabase
+      .from("products")
+      .select("material")
+      .not("material", "is", null)
+      .limit(500)
+
+    const colors = [...new Set(colorData?.map(p => p.color).filter(Boolean))]
+    const materials = [...new Set(materialData?.map(p => p.material).filter(Boolean))]
+
+    return { categories: categories || [], colors, materials }
+  },
+  ['filter-options'],
+  { revalidate: 3600, tags: ['filters'] }
+)
 
 export default async function ProductsPage({
   searchParams,
@@ -19,12 +55,17 @@ export default async function ProductsPage({
     material?: string
     inStock?: string
     sortBy?: string
+    page?: string
   }>
 }) {
   const params = await searchParams
+  const page = parseInt(params.page || '1')
+  const pageSize = 24 // Reduced from 50 for faster load
+  const offset = (page - 1) * pageSize
+
   const supabase = await createClient()
 
-  // OPTIMIZED: Build query step by step
+  // Build query
   let query = supabase
     .from("products")
     .select(`
@@ -35,21 +76,15 @@ export default async function ProductsPage({
       original_price,
       stock_quantity,
       is_new,
-      sku,
       rating,
-      review_count,
-      color,
-      material,
-      category_id,
       images:product_images!inner(
         image_url,
-        alt_text,
         is_primary
       )
-    `)
+    `, { count: 'exact' })
     .eq("product_images.is_primary", true)
 
-  // Category filter - OPTIMIZED: Uses composite index
+  // Apply filters
   if (params.category) {
     const { data: category } = await supabase
       .from("categories")
@@ -62,30 +97,23 @@ export default async function ProductsPage({
     }
   }
 
-  // Price filters - OPTIMIZED: Uses price index
   if (params.minPrice) {
     query = query.gte("price", parseFloat(params.minPrice))
   }
   if (params.maxPrice) {
     query = query.lte("price", parseFloat(params.maxPrice))
   }
-
-  // Color filter
   if (params.color) {
     query = query.ilike("color", `%${params.color}%`)
   }
-
-  // Material filter
   if (params.material) {
     query = query.ilike("material", `%${params.material}%`)
   }
-
-  // Stock filter - OPTIMIZED: Uses stock index
   if (params.inStock === "true") {
     query = query.gt("stock_quantity", 0)
   }
 
-  // Sorting - OPTIMIZED: Uses appropriate indexes
+  // Apply sorting
   switch (params.sortBy) {
     case "price-asc":
       query = query.order("price", { ascending: true })
@@ -103,55 +131,70 @@ export default async function ProductsPage({
       query = query.order("created_at", { ascending: false })
   }
 
-  // OPTIMIZED: Limit results to first 50
-  query = query.range(0, 49)
+  // Apply pagination
+  query = query.range(offset, offset + pageSize - 1)
 
-  const { data: products } = await query
+  // Execute queries in parallel
+  const [{ data: products, count }, filterOptions] = await Promise.all([
+    query,
+    getFilterOptions(),
+  ])
 
-  // OPTIMIZED: Get unique colors and materials efficiently
-  const { data: allProducts } = await supabase
-    .from("products")
-    .select("color, material")
-    .not("color", "is", null)
-    .not("material", "is", null)
-    .limit(1000)
-
-  const colors = [...new Set(allProducts?.map(p => p.color).filter(Boolean))]
-  const materials = [...new Set(allProducts?.map(p => p.material).filter(Boolean))]
-
-  // OPTIMIZED: Only fetch category names, not full data
-  const { data: categories } = await supabase
-    .from("categories")
-    .select("name, slug")
-    .is("parent_id", null)
-    .order("name")
+  const totalPages = count ? Math.ceil(count / pageSize) : 0
 
   return (
     <div className="container py-8">
       <div className="mb-8">
         <h1 className="text-4xl font-bold">All Products</h1>
         <p className="mt-2 text-muted-foreground">
-          {products?.length || 0} products found
+          {count || 0} products found
         </p>
       </div>
 
       <div className="grid gap-8 lg:grid-cols-4">
         <aside className="lg:col-span-1">
           <ProductFilters
-            categories={categories || []}
-            colors={colors}
-            materials={materials}
+            categories={filterOptions.categories}
+            colors={filterOptions.colors}
+            materials={filterOptions.materials}
             currentFilters={params}
           />
         </aside>
 
         <div className="lg:col-span-3">
           {products && products.length > 0 ? (
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {products.map((product: Product) => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {products.map((product: Product) => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="mt-8 flex justify-center gap-2">
+                  {page > 1 && (
+                    <a
+                      href={`/products?${new URLSearchParams({ ...params, page: String(page - 1) }).toString()}`}
+                      className="px-4 py-2 border rounded hover:bg-accent"
+                    >
+                      Previous
+                    </a>
+                  )}
+                  <span className="px-4 py-2">
+                    Page {page} of {totalPages}
+                  </span>
+                  {page < totalPages && (
+                    <a
+                      href={`/products?${new URLSearchParams({ ...params, page: String(page + 1) }).toString()}`}
+                      className="px-4 py-2 border rounded hover:bg-accent"
+                    >
+                      Next
+                    </a>
+                  )}
+                </div>
+              )}
+            </>
           ) : (
             <div className="py-12 text-center">
               <p className="text-muted-foreground">No products found matching your filters.</p>

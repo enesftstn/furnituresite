@@ -1,3 +1,4 @@
+// app/products/[slug]/page.tsx
 import { createClient } from "@/lib/supabase/server"
 import type { Product, ProductImage } from "@/lib/types"
 import { notFound } from "next/navigation"
@@ -13,12 +14,13 @@ import { ProductImageGallery } from "@/components/product-image-gallery"
 import { Suspense } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
 
+// FIXED: Remove Promise wrapper from params
 export async function generateMetadata({
   params,
 }: {
-  params: Promise<{ slug: string }>
+  params: { slug: string }
 }) {
-  const { slug } = await params
+  const { slug } = params
   const supabase = await createClient()
 
   const { data: product } = await supabase
@@ -179,12 +181,13 @@ async function RelatedProducts({ categoryId, currentProductId }: { categoryId: s
   )
 }
 
+// FIXED: Remove Promise wrapper from params
 export default async function ProductPage({
   params,
 }: {
-  params: Promise<{ slug: string }>
+  params: { slug: string }
 }) {
-  const { slug } = await params
+  const { slug } = params
   const supabase = await createClient()
 
   // Fetch product with optimized query - only get what we need
